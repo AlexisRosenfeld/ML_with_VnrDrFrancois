@@ -10,27 +10,28 @@ from sklearn.model_selection import train_test_split as sk_tts
 
 class KG_test(KG_base):
     """Génère des jeux de test pour k-guesser.
-    Attention ! Ce n'est pas une simulation mais un test.
     On génère des jeux de données et on compare nos variables indépendantes 
     à l'hyperparamètre obtenu de façon classique.
     
-    - 'sim(n)' pour générer un jeu de 'n' données.
-    - 'generate()' pour générer un faux jeu de données.
-    - 'get_bestk()' pour déterminer l'hyperparamètre
-    - 'get_features()' pour dériver les 'features'
-    - 'save()' pour sauvegarder les données.
+    - 'sim()'           pour générer un jeu de 'n' données
+    - 'generate()'      pour générer un faux jeu de données
+    - 'get_bestk()'     pour déterminer l'hyperparamètre
+    - 'get_features()'  pour dériver les 'features'
+    - 'save()'          pour sauvegarder les données (append)
+    - 'load()'          pour charger les données d'un fichier Excel
     
-    Pour obtenir une donnée de forme [y, x1, x2, ..., xn], 'sim()' 
-    génère d'abord un faux jeu de données avec 'generate()' puis appelle 
-    'get_bestk()' pour en déterminer l'hyperparamètre 'y' et 
-    'get_features()' pour les variables 'x1, x2, ..., xn'.
+    Et encore : 
+    
+    - 'load/save_fds()' pour sauvegarder/charger de faux jeu de données
+    - 'show_dataset()'  pour visualiser un faux jeu de données
+    - 'show_features()' pour visualiser les 'features' relativement à 'best_k'
+    
+    Les paramètres pour la génération de données sont des propriétés de la 
+    classe. 'head' contient le nom des colonnes pour le jeu de données.
     """
     
     def __init__(self):
         super().__init__()
-        self.head = ['best_k', 'n_rows', 'n_classes', 'n_features',
-                     'n_nonrand', 'distr_typ', 'distr_noise', 
-                     'mean_var', 'mean_skew', 'mean_kurtosis']
         # paramètres de génération de faux jeux de données
         self.lim_row = [100, 10000]           # nombre de lignes
         self.lim_ycl = [3, 5]                 # nombre de classes de 'y'
@@ -137,7 +138,7 @@ class KG_test(KG_base):
         'n_col' contrôle le nombre de colonnes affiché."""
         if dat.shape[0] == 0:
             return
-        x, y = dat[:,1:], dat[:,0]
+        x, y = self._ifds(dat)
         lx = np.arange(1, x.shape[0], 1)
         r = (x.shape[1]//n_col); r = r+1 if x.shape[1]%n_col > 0 else r
         c = n_col if x.shape[1] >= n_col else x.shape[1]
@@ -232,12 +233,7 @@ class KG_test(KG_base):
                 l_vi.append(d_vi[k]); continue
             match k:
                 case 'n_nonrand':              # feature selection
-                    nb_corr = 0
-                    for i in range(0, n_feat):
-                        nb_corr = nb_corr+1 if \
-                                  np.corrcoef(y, x[:,i])[0][1] > 0.2 else \
-                                  nb_corr
-                    l_vi.append(nb_corr/n_feat)
+                    l_vi.append(np.sum(self.select_features(x, y)))
                 case 'distr_typ':              # random if no cheating
                     l_vi.append(np.random.uniform(1, 3))
                 case 'distr_noise':            # random if no cheating
@@ -264,18 +260,3 @@ class KG_test(KG_base):
             dat, tmp = self._sim_save(f, n, n, dat, tmp, verbose, log_f)
         return np.array(dat+tmp)
 
-if __name__ == "__main__":
-    kg = KG_test()
-    # dat = kg.sim(2000, "kg_test.xlsx", verbose=True)
-    dat = kg.load("kg_test.xlsx")
-        # better featuring n_nonrand and var/skew/kurtosis
-    dat[:,4] = dat[:,4]/dat[:,3]
-    for i in range(7, 10):
-        dat[:,i] = dat[:,i]/dat[:,1]
-    print(kg.select_features(dat))
-    # print(x)
-    # kg.show_features(dat)
-    x, y, d_vi = kg.generate(view=True)
-    # print(d_vi)
-    # input()
-    

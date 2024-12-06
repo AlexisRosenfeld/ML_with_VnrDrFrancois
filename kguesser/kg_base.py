@@ -6,15 +6,20 @@ class KG_base():
     """Classe "abstraite" pour k-guesser.
     Contient des méthodes communes.
     
-    - 'log()'     permet de journaliser les opérations,
-                  en console ou dans un fichier.
-    - 'params()'  permet d'obtenir et de modifier les 
-                  propriétés (publiques) de l'instance.
+    - 'log()'             permet de journaliser les opérations,
+                          en console ou dans un fichier.
+    - 'params()'          permet d'obtenir et de modifier les 
+                          propriétés (publiques) de l'instance.
+    - 'select_features()' filtre les variables par méthode de 
+                          corrélation.
     """
     def __init__(self):
         self.log_path = ""
+        self.head = ['best_k', 'n_rows', 'n_classes', 'n_features',
+                     'n_nonrand', 'distr_type', 'distr_noise', 
+                     'mean_var', 'mean_skew', 'mean_kurtosis']
 
-    def _ifds(self, x, y):
+    def _ifds(self, x, y=None):
         """Sépare 'x/y' si ce n'est pas déjà fait."""
         if y is not None:                            # déjà séparé
             return x, y
@@ -53,14 +58,18 @@ class KG_base():
             if k in d_cpy:
                 d_cpy[k] = self.__dict__[k] = v
         return d_cpy                  # copie par sécurité
-        
+      
     def select_features(self, x, y=None, tol=0.2, delete=False):
         """Utilise la corrélation pour éliminer les catégories de 'x'
-        considérées non-significatives."""
+        considérées non-significatives.
+        Retourne la liste d'index de variables corrélées ; si 
+        'delete=True', retourne 'x' sans ces colonnes."""
         x, y = self._ifds(x, y)
         l_index = []
         for i in range(x.shape[1]): # correl' variable par variable
-            corr = np.corrcoef(y, x[:,i])[0][1]
+            ix = x[:,i] if isinstance(x, np.ndarray) else \
+                 pd.DataFrame(x.iloc[:,i].values.reshape(-1, 1))
+            corr = np.corrcoef(y, ix)[0][1]
             corr = corr*-1 if corr < 0 else corr   # valeur absolue
             if corr > tol:
                 l_index.append(i)
