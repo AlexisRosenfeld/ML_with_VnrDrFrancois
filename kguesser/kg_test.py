@@ -40,12 +40,6 @@ class KG_test(KG_base):
 
         # Méthodes privées #
         #------------------#
-    def _ifds(self, x, y):
-        """Teste si 'x' est un jeu de données.
-        Note: doit encore tester pour Pandas et Numpy."""
-        if y is None:                         # x is dataset
-            y = x[:,0]; x = x[:,1:]           # assumes y at index 0
-        return x, y
     def _r(self, low, high):
         """Retourne un 'randint' avec numpy, 'high' inclusif.
         (Comportement de la librairie 'random'.)"""
@@ -115,6 +109,7 @@ class KG_test(KG_base):
         """Charge les données d'un fichier Excel."""
         if not os.path.isfile(f):
             return np.array([])
+        dat = pd.read_excel(f)
         return pd.read_excel(f).to_numpy()
 
         # Visualiser #
@@ -191,7 +186,7 @@ class KG_test(KG_base):
             self.show_dataset(gx, gy, cx)
         if cheat:
             d_vi = {
-                'n_nonrand': n_nonrand,
+                'n_nonrand': n_nonrand/len(cx),
                 'distr_typ': sum(cx)/n_nonrand if n_nonrand > 0 else 0,
                 'distr_noise': distr_noise
             } # cheating to provide values for our model
@@ -220,29 +215,29 @@ class KG_test(KG_base):
         'd_vi' est un moyen de tricher pour obtenir des variables 
         normalement inaccessibles."""
         x, y = self._ifds(x, y)                # check for dataset
-        lx = x.shape[1]
-        if lx <= 0:                            # 0 datapoint, no point
+        n_row, n_feat = x.shape; n_mult = n_row*n_feat
+        if n_row <= 0:                         # 0 datapoint, no point
             return [-1. for i in range(1, len(self.header))]
-        l_vi = [x.shape[0],                    # n_rows
+        l_vi = [n_row,                         # n_rows
                 len(np.unique(y)),             # n_y_classes
-                x.shape[1]                     # n_features
+                n_feat                         # n_features
         ] # list to return
         var, skw, krt = 0., 0., 0.             # pre-calculate more data
-        for i in range(0, lx):
+        for i in range(0, n_feat):
             var += np.var(x[:,i]); skw += skew(x[:,i])
             krt += kurtosis(x[:,i])
-        var, skw, krt = var/lx, skw/lx, krt/lx
+        var, skw, krt = var/n_mult, skw/n_mult, krt/n_mult; del n_mult
         for k in self.head[4:7]:               # check 'd_vi' for some values
             if k in d_vi:                      # 'd_vi' handles it
                 l_vi.append(d_vi[k]); continue
             match k:
                 case 'n_nonrand':              # feature selection
                     nb_corr = 0
-                    for i in range(0, x.shape[1]):
-                        nb_corr = nb_corr+1 if numpy.corrcoef(y,
-                                               x[:,i])[0][0] > 0.2 else \
+                    for i in range(0, n_feat):
+                        nb_corr = nb_corr+1 if \
+                                  np.corrcoef(y, x[:,i])[0][1] > 0.2 else \
                                   nb_corr
-                    l_vi.append(nb_corr)
+                    l_vi.append(nb_corr/n_feat)
                 case 'distr_typ':              # random if no cheating
                     l_vi.append(np.random.uniform(1, 3))
                 case 'distr_noise':            # random if no cheating
@@ -271,7 +266,16 @@ class KG_test(KG_base):
 
 if __name__ == "__main__":
     kg = KG_test()
-    dat = kg.sim(2000, "kg_test.xlsx", verbose=True)
+    # dat = kg.sim(2000, "kg_test.xlsx", verbose=True)
+    dat = kg.load("kg_test.xlsx")
+        # better featuring n_nonrand and var/skew/kurtosis
+    dat[:,4] = dat[:,4]/dat[:,3]
+    for i in range(7, 10):
+        dat[:,i] = dat[:,i]/dat[:,1]
+    print(kg.select_features(dat))
+    # print(x)
     # kg.show_features(dat)
-    # x, y, d_vi = kg.gen(view=True)
+    x, y, d_vi = kg.generate(view=True)
+    # print(d_vi)
+    # input()
     

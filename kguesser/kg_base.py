@@ -1,4 +1,6 @@
 import os
+import numpy as np
+import pandas as pd
 
 class KG_base():
     """Classe "abstraite" pour k-guesser.
@@ -11,6 +13,21 @@ class KG_base():
     """
     def __init__(self):
         self.log_path = ""
+
+    def _ifds(self, x, y):
+        """Sépare 'x/y' si ce n'est pas déjà fait."""
+        if y is not None:                            # déjà séparé
+            return x, y
+        elif isinstance(x, np.ndarray):              # numpy array
+            return x[:,1:], x[:,0]
+        elif isinstance(x, pd.core.frame.DataFrame): # pandas DataFrame
+            yn = x.columns[0]
+            return x.drop([yn]), x[yn]
+        else:                                        # (supposé) list
+            y = []
+            for i,ix in x:
+                y = x[i][0]; x[i] = x[i][1:]
+            return np.array(x), np.array(y)
 
     def log(self, txt, f="", end="\n"):
         """Journalise les opérations.
@@ -36,5 +53,23 @@ class KG_base():
             if k in d_cpy:
                 d_cpy[k] = self.__dict__[k] = v
         return d_cpy                  # copie par sécurité
-
-
+        
+    def select_features(self, x, y=None, tol=0.2, delete=False):
+        """Utilise la corrélation pour éliminer les catégories de 'x'
+        considérées non-significatives."""
+        x, y = self._ifds(x, y)
+        l_index = []
+        for i in range(x.shape[1]): # correl' variable par variable
+            corr = np.corrcoef(y, x[:,i])[0][1]
+            corr = corr*-1 if corr < 0 else corr   # valeur absolue
+            if corr > tol:
+                l_index.append(i)
+        if delete:                                 # retirer de 'x'
+            l_rem = list(filter(None, [i if i not in l_index else None 
+                                       for i in range(x.shape[1])]))
+            if isinstance(x, pd.core.frame.DataFrame):
+                x.drop(x.columns[l_rem], axis=1, inplace=True)
+            elif isinstance(x, np.ndarray):
+                x = np.delete(x, l_rem, 1)
+            return x
+        return l_index
