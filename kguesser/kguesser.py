@@ -11,7 +11,7 @@ from sklearn.metrics import r2_score as sk_r2
 from sklearn.model_selection import train_test_split as sk_tts
 from sklearn.model_selection import cross_val_score as sk_cross
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression as sk_lm
 from sklearn.neural_network import MLPRegressor as sk_nn
 
 class KG_base():
@@ -190,8 +190,6 @@ class KG_test(KG_base):
         else:
             df = pd.read_excel(f)
             nr = df[df.columns[0]].count()
-            print("\n", len(dat), len(dat[0]))
-            print(df.shape)
             for i, row in enumerate(dat):
                 df.loc[nr+i] = row
             df.to_excel(f, index=False)
@@ -247,7 +245,7 @@ class KG_test(KG_base):
     
         # Générer #
         #---------#
-    def generate(self, view=False, cheat=True):
+    def generate(self, view=False, cheat=True, save_path=""):
         """Génère un faux jeu de données."""
         n_rows, n_y_classes, cx, n_nonrand, distr_noise = self._gen_setup()
         gy, gx = [], []
@@ -274,6 +272,8 @@ class KG_test(KG_base):
         gx, gy = np.array(gx), np.array(gy).ravel()
         if view:
             self.show_dataset(gx, gy, cx)
+        if save_path:
+            self.save_fds(save_path, gx, gy)
         if cheat:
             d_vi = {
                 'n_nonrand': n_nonrand/len(cx),
@@ -514,7 +514,7 @@ class KG_model(KG_base):
         """Méthode générale pour tester le modèle 
         à partir d'un jeu de données."""
         x_tr, x_val, y_tr, y_val = self._test_prep(x, y, preprocess, verbose)
-        self.m = LinearRegression()
+        self.m = sk_lm()
         return self._test_run(x_tr, x_val, y_tr, y_val, verbose)
     def test_nn(self, x, y=None, params={}, preprocess=True, verbose=True):
         """Méthode générale pour tester un réseau neuronal 
@@ -537,11 +537,8 @@ class KG_model(KG_base):
 if __name__ == "__main__":
     kg_test = KG_test()
     # kg_test.sim(2000, "kg_test.xlsx", True)
-    kg_model = KG_model()
-    dat = kg_test.load("kg_test.xlsx")
+    # kg_model = KG_model()
+    # dat = kg_test.load("kg_test.xlsx")
     # kg_model.test_lm(dat)
-    kg_model.test_nn(dat)
-    
-    """Cross-validation mean: 0.35 , std: 0.06
-    Mean Square Error: 370.78
-    R² Score: 0.37"""
+    # kg_model.test_nn(dat)
+    print("Done.")
