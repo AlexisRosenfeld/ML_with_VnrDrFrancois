@@ -58,6 +58,27 @@ class KG_base():
         else:
             print(txt, end=end)
 
+        # Charger/sauvegarder #
+        #---------------------#
+    def save(self, f, dat, columns=None):
+        """Sauvegarde les données dans un fichier Excel."""
+        columns = self.head if columns is None else columns
+        if not os.path.isfile(f):
+            pd.DataFrame(dat, columns=columns) \
+              .to_excel(f, index=False)
+        else:
+            df = pd.read_excel(f)
+            nr = df[df.columns[0]].count()
+            for i, row in enumerate(dat):
+                df.loc[nr+i] = row
+            df.to_excel(f, index=False)
+    def load(self, f):
+        """Charge les données d'un fichier Excel."""
+        if not os.path.isfile(f):
+            return np.array([])
+        dat = pd.read_excel(f)
+        return pd.read_excel(f).to_numpy()
+    
     def params(self, d_params={}):
         """Fournit les paramètres de la classe.
         Permet aussi de changer ces paramètres."""
@@ -70,7 +91,17 @@ class KG_base():
             if k in d_cpy:
                 d_cpy[k] = self.__dict__[k] = v
         return d_cpy                  # copie par sécurité
-      
+
+    def show(self, x, y=None, f="", columns=[]):
+        """Imprime la tête des données."""
+        x, y = self._ifds(x, y)
+        columns = self.head if not columns else columns
+        if isinstance(y, np.ndarray):
+            df = pd.DataFrame(np.hstack((y.reshape(-1, 1),x)), columns=columns)
+        else:
+            df = pd.concat([y, x], axis=1, join="inner")
+        self.log(df.head(), f)
+    
     def select_features(self, x, y=None, tol=0.2, delete=False):
         """Utilise la corrélation pour éliminer les catégories de 'x'
         considérées non-significatives.
@@ -153,16 +184,16 @@ class KG_test(KG_base):
         distr_noise = self.distr_noise if self.distr_noise > 0 else \
                       self._r(1, 3)
         return n_rows, n_y_classes, cx, n_nonrand, distr_noise
-    def _sim_save(self, f, i, n, dat, tmp, verbose, log_f):
+    def _sim_save(self, f, i, n, dat, tmp, verbose, log_f, columns=None):
         """Petit bout de code répété dans 'sim()'."""
-        self.save(f, tmp)
+        self.save(f, tmp, columns)
         if verbose:
             self.log(f"Sauvegardé {i}/{n} dans '{f}'.", log_f, end="\r")
         dat = dat+tmp; tmp = []
         return dat, tmp
 
-        # Charger/sauvegarder les données #
-        #---------------------------------#
+        # Charger/sauvegarder #
+        #---------------------#
     def save_fds(self, f, x, y=None):
         """Sauvegarde un faux jeu de données dans un fichier Excel.
         Crée un dossier au besoin."""
@@ -182,23 +213,6 @@ class KG_test(KG_base):
                     if os.path.splitext(uf) == ".xlsx"
                     else None for u in os.listdir(f)]))
         return pd.read_excel(f).to_numpy() # fichier
-    def save(self, f, dat):
-        """Sauvegarde les données dans un fichier Excel."""
-        if not os.path.isfile(f):
-            pd.DataFrame(dat, columns=self.head) \
-              .to_excel(f, index=False)
-        else:
-            df = pd.read_excel(f)
-            nr = df[df.columns[0]].count()
-            for i, row in enumerate(dat):
-                df.loc[nr+i] = row
-            df.to_excel(f, index=False)
-    def load(self, f):
-        """Charge les données d'un fichier Excel."""
-        if not os.path.isfile(f):
-            return np.array([])
-        dat = pd.read_excel(f)
-        return pd.read_excel(f).to_numpy()
 
         # Visualiser #
         #------------#
@@ -289,15 +303,20 @@ class KG_test(KG_base):
         L'intervalle est limité à [1, sqrt(len(x))]."""
         x, y = self._ifds(x, y)               # check for dataset
         x_tr, x_te, y_tr, y_te = sk_tts(x, y) # train/test
-        rk, ra, ly = 0, -1., int(np.sqrt(len(y)))-1
+        rk, ra, ly = 0, -1., 101 # int(np.sqrt(len(y)))-1
+        l_bestk = np.array([0. for i in range(ly+1)])
         for k in np.arange(1, ly, 1):         # all possible k's
-            m = sk_kNN(k)                     # kNN model
-            m.fit(x_tr, y_tr)                 # fit on training data
-            yp_te = m.predict(x_te)           # predict on test data
-            a = sk_acc(y_te, yp_te)           # get accuracy score
-            if a > ra:                        # pick best 'k'
-                ra, rk = a, k
-        return rk
+            try:
+                m = sk_kNN(k)                     # kNN model
+                m.fit(x_tr, y_tr)                 # fit on training data
+                yp_te = m.predict(x_te)           # predict on test data
+                a = sk_acc(y_te, yp_te)           # get accuracy score
+                if a > ra:                        # pick best 'k'
+                    l_bestk[0], l_bestk[1] = ra, rk = a, k
+                l_bestk[k+1] = a
+            except:
+                break
+        return rk, l_bestk
     def get_features(self, x, y=None, d_vi=None):
         """Dérive des variables (pour déterminer l'hyperparamètre 'k')
         à partir d'un jeu de données (x, y).
@@ -334,20 +353,24 @@ class KG_test(KG_base):
     
         # Méthode principale #
         #--------------------#
-    def sim(self, n=100, f="", verbose=False, log_f=""):
+    def sim(self, n=100, df="data.xlsx", kf="k.xlsx", verbose=False, log_f=""):
         """Génère 'n' données."""
-        dat, tmp = [], []
+        d, dt, k, kt = [], [], [], []
+        cols = ["best_k", "bes_acc"]+[str(i+1) for i in range(100)]
         for i in range(n):
             x, y, d_vi = self.generate()                    # fake dataset
-            tmp.append([self.get_bestk(x, y)]+
-                        self.get_features(x, y, d_vi))      # datapoint
+            nk, lk = self.get_bestk(x, y)
+            dt.append([nk]+self.get_features(x, y, d_vi))   # datapoint
+            kt.append(lk)
             if verbose:
                 self.log(f"Point de donnée {i} généré...", log_f, end="\r")
-            if f and i > 0 and i%20 == 0:                   # save every 20
-                dat, tmp = self._sim_save(f, i, n, dat, tmp, verbose, log_f)
-        if f:
-            dat, tmp = self._sim_save(f, n, n, dat, tmp, verbose, log_f)
-        return np.array(dat+tmp)
+            if df and i > 0 and i%20 == 0:                   # save every 20
+                k, kt = self._sim_save(kf, i, n, k, kt, False, "", cols)
+                d, dt = self._sim_save(df, i, n, d, dt, verbose, log_f)
+        if df:
+            k, kt = self._sim_save(kf, n, n, k, kt, False, "", cols)
+            d, dt = self._sim_save(df, n, n, d, dt, verbose, log_f)
+        return np.array(d+dt), np.array(k+kt)
 
 class KG_model(KG_base):
     """Génère, entraîne et teste le modèle.
@@ -362,10 +385,11 @@ class KG_model(KG_base):
     quantitatifs pour le projet k-guesser, et permettre de continuer
     l'entraînement d'un modèle existant via 'river' (?)."""
     
-    def __init__(self):
+    def __init__(self, m_path="", k_path=""):
         super().__init__()
         self.m = None
-        self.m_path = "regression_model.pkl"
+        self.m_path = "regression_model.pkl" if not m_path else m_path
+        self.ktab = self.load("k.xlsx" if not k_path else k_path) # table
     
         # Méthodes privées #
         #------------------#   
@@ -392,26 +416,33 @@ class KG_model(KG_base):
         x, y = self._ifds(x, y)
         if preprocess:                            # pré-traitement
             x, y = self.preprocess(x, y, verbose=False)
-        x_tr, x_val, y_tr, y_val = sk_tts(x, y)   # entraînement/validation
-        return x_tr, x_val, y_tr, y_val
-    def _test_run(self, x_tr, x_val, y_tr, y_val, verbose):
+        # x_tr, x_val, y_tr, y_val = sk_tts(x, y)   # entraînement/validation
+        x_tr, x_val, y_tr, y_val, _, li = self.splitmerge(x, y)
+        return x_tr, x_val, y_tr, y_val, li
+    def _test_run(self, x_tr, x_val, y_tr, y_val, cross, verbose, li):
         """Test d'un modèle : évaluation."""
         if verbose:
             self.log("Starting cross-validation...              ", end="\r")
-        sc = sk_cross(self.m, x_tr, y_tr, cv=5)   # validation croisée
+        if cross:                                 # validation croisée
+            sc = sk_cross(self.m, x_tr, y_tr, cv=5) 
+            mean, std = sc.mean(), sc.std()
+        else:
+            mean, std = -1., -1.
         if verbose:
             self.log("Starting evalution...                     ", end="\r")
         self.fit(x_tr, y_tr, verbose=False)       # entraînement général
-        mse, r2 = self.eval(x_val, y_val)         # évaluation générale
+        mse, r2 = self.eval(x_val, y_val, verbose, li) # évaluation générale
         if verbose:
             self.log(
-                "Model Performance:\n"+
-                f"Cross-validation mean: {sc.mean():.02f} "
-                f", std: {sc.std():.02f}\n"+
-                f"Mean Square Error: {mse:.02f}\n"+
-                f"R² Score: {r2:.02f}"
+                "#----------------------------------------\n"+
+                "|Model Performance:\n"+
+                f"|Cross-validation mean: {mean:.02f} "
+                f", std: {std:.02f}\n"+
+                f"|Mean Square Error: {mse:.02f}\n"+
+                f"|R² Score: {r2:.02f}\n"+
+                "#----------------------------------------\n"
             )
-        return sc, mse, r2
+        return mean, std, mse, r2
         # Sauvegarde/chargement #
         #-----------------------#
     def save_m(self, f):
@@ -422,13 +453,17 @@ class KG_model(KG_base):
         Attention, c'est une faille de sécurité."""
         f = self.m_path if not f else f
         self.m = joblib.load(f) if os.path.isfile(f) else self.m
+    def load_k(self, f="k.xlsx"):
+        """Charge la table k->précision (voir 'KG_test.best_k()'."""
+        self.ktab = self.load(f)
 
         # Pré-traitement #
         #----------------#
-    def preprocess(self, x, y, columns=['distr_noise'],
+    def preprocess(self, x, y=None, columns=['distr_noise'],
                          select=True, verbose=True):
         """Variables catégorielles et équilibrage.
         Note : on assume que le jeu de données est propre."""
+        x, y = self._ifds(x, y)
             # Catégorisation (OneHot)
         do = [True if self.head[i] in columns else False 
               for i in range(1, len(self.head))]
@@ -440,7 +475,6 @@ class KG_model(KG_base):
                 nx = np.append(nx, ix, 1) if nx is not None else ix
                 names.append(n); continue
             ix = encoder.fit_transform(ix)
-            # print(ix)
             nx = np.append(nx, ix, 1) if nx is not None else ix
             for j in range(ix.shape[1]):
                 names.append(n+"_"+str(j+1))
@@ -478,16 +512,31 @@ class KG_model(KG_base):
             if verbose:
                 self.log(f"Selected:\n\t {names}")
             # Passage au DataFrame ?
-        x = pd.DataFrame(x, columns=names[1:])
-        y = pd.DataFrame(y, columns=[names[0]])
+        # x = pd.DataFrame(x, columns=names[1:])
+        # y = pd.DataFrame(y, columns=[names[0]])
         return x, y
+    def splitmerge(self, x, y=None, ratio=0.8):
+        """Une implémentation manuelle de scikit-learn 'train_test_split'
+        pour garder un index 'li' de chaque donnée."""
+        li, l1, l2 = [i for i in range(x.shape[0])], [], []
+        x1, x2, y1, y2 = [], [], [], []
+        n = int(x.shape[0]*ratio)
+        if n <= 0:                            # I don't know what went wrong
+            return x, x2, y, y2, li, l2
+        c, l_c = 0, np.random.choice(li, n, replace=False)
+        l_c.sort()
+        for i in li:
+            if l_c[c] == i:
+                x1.append(x[i,:]); y1.append(y[i]); l1.append(i); c += 1
+            else:
+                x2.append(x[i,:]); y2.append(y[i]); l2.append(i)
+        return np.array(x1), np.array(x2), np.array(y1), np.array(y2), l1, l2
     
         # Fit/predict #
         #-------------#
     def fit(self, x, y, verbose=False):
         """Entraîne le modèle.
         Note : on ne peut pas encore 'continuer' l'entraînement du modèle."""
-        self.m = LinearRegression()           # initialisation
         self.m.fit(x, y)                      # entraînement
         if verbose:
             # yp = pd.DataFrame({'best_k':self.m.predict(x).ravel()})
@@ -503,23 +552,31 @@ class KG_model(KG_base):
     def predict(self, x):
         """Retourne le 'best_k'."""
         return self.m.predict(x)              # prédiction
-    def eval(self, x, y, verbose=True):
+    def eval(self, x, y, verbose=True, li=[]):
         """Évalue le modèle déjà entraîné, sans validation croisée."""
-        yp = self.predict(x)                  # évaluation
-        return sk_mse(y, yp), sk_r2(y, yp)    # MSE et R2
+        yp = self.predict(x)                   # évaluation
+        if li and self.ktab.shape[0] > 0:
+            yp = [self.ktab[li[i], int(np.round(yi))] 
+                  for i, yi in enumerate(yp)]
+            y = [self.ktab[li[i], 1] for i in range(len(y))]
+        return sk_mse(y, yp), sk_r2(y, yp) # MSE et R2
 
         # Méthode principale #
         #--------------------#
-    def test_lm(self, x, y=None, params={}, preprocess=True, verbose=True):
+    def test_lm(self, x, y=None, params={}, preprocess=True, 
+                cross=True, verbose=True):
         """Méthode générale pour tester le modèle 
         à partir d'un jeu de données."""
-        x_tr, x_val, y_tr, y_val = self._test_prep(x, y, preprocess, verbose)
+        x_tr, x_val, y_tr, y_val, li = self._test_prep(x, y, 
+                                                       preprocess, verbose)
         self.m = sk_lm()
-        return self._test_run(x_tr, x_val, y_tr, y_val, verbose)
-    def test_nn(self, x, y=None, params={}, preprocess=True, verbose=True):
+        return self._test_run(x_tr, x_val, y_tr, y_val, cross, verbose, li)
+    def test_nn(self, x, y=None, params={}, preprocess=True, 
+                cross=True, verbose=True):
         """Méthode générale pour tester un réseau neuronal 
         à partir d'un jeu de données."""
-        x_tr, x_val, y_tr, y_val = self._test_prep(x, y, preprocess, verbose)
+        x_tr, x_val, y_tr, y_val, li = self._test_prep(x, y, 
+                                                   preprocess, verbose)
         pm = {
             'hidden_layer_sizes':[x_tr.shape[1], 64, 64, 32],
             'activation':'relu',
@@ -531,14 +588,16 @@ class KG_model(KG_base):
         for k,v in params.items():
             pm[k] = v
         self.m = sk_nn(**pm)
-        y_tr, y_val = y_tr.to_numpy().ravel(), y_val.to_numpy().ravel()
-        return self._test_run(x_tr, x_val, y_tr, y_val, verbose)
+        if isinstance(x, pd.core.frame.DataFrame):
+            y_tr, y_val = y_tr.to_numpy().ravel(), y_val.to_numpy().ravel()
+        return self._test_run(x_tr, x_val, y_tr, y_val, cross, verbose, li)
         
 if __name__ == "__main__":
     kg_test = KG_test()
-    # kg_test.sim(2000, "kg_test.xlsx", True)
+    dat, k = kg_test.sim(100, "", True, "")
+    # dat = kg_test.load("test.xlsx")
     # kg_model = KG_model()
-    # dat = kg_test.load("kg_test.xlsx")
-    # kg_model.test_lm(dat)
-    # kg_model.test_nn(dat)
+    # kg_model.load_k("k.xlsx")
+    # mean, std, mse, r2 = kg_model.test_lm(dat)
+    # mean, std, mse, r2 = kg_model.test_nn(dat, cross=False)
     print("Done.")
